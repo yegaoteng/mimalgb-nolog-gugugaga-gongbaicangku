@@ -7,14 +7,17 @@
 <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; overflow: hidden; background: #f7f7f9; }
-    body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; color: #222; height: 100dvh; width: 100vw; }
-    header { background: #fff; border-bottom: 1px solid #ececec; padding: 14px 20px; font-size: 16px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    body { font-family: -apple-system, sans-serif; display: flex; flex-direction: column; color: #222; height: 100%; width: 100vw; }
+    header { background: #fff; border-bottom: 1px solid #ececec; padding: 14px 20px; font-size: 16px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; position: relative; z-index: 10; }
     #new-chat-btn { background: #f0f2f5; color: #333; border: 1px solid #ddd; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; }
-    #chat { flex: 1; overflow-y: auto; padding: 16px 12px 24px; display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 1000px; margin: 0 auto; }
+    
+    #chat { flex: 1; overflow-y: auto; padding: 16px 12px 140px 12px; display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 1000px; margin: 0 auto; }
+    
     .msg { line-height: 1.65; word-break: break-word; font-size: 15px; }
     .msg.user { max-width: 85%; align-self: flex-end; background: #007aff; color: #fff; padding: 10px 14px; border-radius: 14px; border-bottom-right-radius: 4px; white-space: pre-wrap; }
     .msg.assistant { align-self: flex-start; background: #fff; color: #222; padding: 14px 16px; border-radius: 14px; border: 1px solid #ececec; border-bottom-left-radius: 4px; width: 100%; }
     .msg.error { align-self: center; background: #fff2f2; color: #c62828; border: 1px solid #ffd4d4; font-size: 13px; padding: 10px 14px; border-radius: 8px; }
+    
     .reasoning-box { align-self: flex-start; width: 100%; margin-bottom: 8px; background: #f8f9fa; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; flex-shrink: 0; }
     .reasoning-header { padding: 12px 14px; cursor: pointer; display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: #555; font-weight: 500; user-select: none; background: #f8f9fa; }
     .reasoning-arrow { font-size: 10px; transition: transform 0.3s ease; }
@@ -25,11 +28,13 @@
     .reasoning-content { padding: 0 14px 14px; font-size: 13.5px; color: #666; white-space: pre-wrap; max-height: 300px; overflow-y: auto; border-top: 1px dashed #d0d7de; margin-top: 2px; padding-top: 10px; }
     .reasoning-step { display: block; margin-bottom: 6px; color: #888; font-size: 13px; }
     .reasoning-box.collapsed .reasoning-content { border-top-color: transparent; }
+    
     .file-cards-container { margin-top: 14px; padding-top: 14px; border-top: 1px dashed #e0e2e6; display: flex; flex-direction: column; gap: 8px; }
     .file-card-inline { display: flex; align-items: center; gap: 10px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 10px 14px; font-size: 14px; white-space: normal; }
     .file-icon { font-size: 18px; line-height: 1; }
     .file-name { font-weight: 500; color: #222; }
     .file-download { margin-left: auto; color: #007aff; text-decoration: none; font-weight: 600; font-size: 13px; padding: 4px 10px; border-radius: 8px; background: #eef4ff; white-space: nowrap; }
+    
     .markdown { white-space: normal; }
     .markdown > *:first-child { margin-top: 0; }
     .markdown > *:last-child  { margin-bottom: 0; }
@@ -37,9 +42,12 @@
     .markdown code { background: #eef4ff; color: #007aff; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
     .markdown pre { margin: 14px 0; border: 1px solid #e0e2e6; border-radius: 8px; background: #fafafa; padding: 14px; overflow-x: auto; }
     .markdown pre code { background: none; padding: 0; color: #333; font-size: 0.88em; line-height: 1.55; }
-    #composer { background: #fff; border-top: 1px solid #ececec; padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); flex-shrink: 0; }
+    
+    #composer { position: absolute; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #ececec; padding: 12px 12px calc(16px + env(safe-area-inset-bottom)); z-index: 10; }
+    
     .model-selector-wrapper { max-width: 1000px; margin: 0 auto 8px auto; }
     #model-select { padding: 6px 28px 6px 12px; border: 1px solid #ddd; border-radius: 8px; background-color: #fafafa; font-size: 13px; color: #333; outline: none; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23666%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E"); background-repeat: no-repeat; background-position: right 10px top 50%; background-size: 10px auto; }
+    
     .composer-inner { max-width: 1000px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
     textarea { flex: 1; resize: none; border: 1px solid #ddd; border-radius: 12px; padding: 11px 14px; font-size: 15px; outline: none; min-height: 46px; max-height: 120px; background: #fafafa; }
     button.send-btn { background: #007aff; color: #fff; border: none; border-radius: 12px; padding: 0 20px; font-size: 15px; font-weight: 600; cursor: pointer; height: 46px; white-space: nowrap; }
@@ -145,7 +153,7 @@ function renderHistory() {
     chatEl.innerHTML = '';
     displayHistory.forEach(item => {
         if (item.role === 'user') {
-            if (item.content.includes("之前的代码在云端编译失败了")) return; 
+            // 彻底移除隐藏气泡的逻辑，全部渲染出来
             const ub = document.createElement('div'); ub.className = 'msg user'; ub.textContent = item.content; chatEl.appendChild(ub);
         } else if (item.role === 'assistant') {
             if (item.reasoning) {
@@ -190,7 +198,7 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
     let pollCount = 0;
     let timeoutId = null;
     let isPaused = false;
-    let isFixing = false; // 防止同一个错误触发多次修复
+    let isFixing = false; 
 
     function doPoll() {
         if (isPaused) return;
@@ -211,7 +219,7 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
                     scrollBottom(true);
                     return;
                 } else if (data.status === 'error') {
-                    if (isFixing) return; // 如果已经开始修复了，就不要重复触发
+                    if (isFixing) return; 
                     isFixing = true;
 
                     msgObj.buildStatus = 'failed'; saveSession();
@@ -228,6 +236,7 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
                     autoFixCount++;
                     
                     let fixPrompt = "之前的代码在云端编译失败了，报错日志如下：\n\n" + (data.log || "未知错误") + "\n\n请仔细分析错误原因，修改代码后，重新调用 package_mod_project 打包。";
+                    // 这里触发自动修复，此时会渲染出蓝色的长提示词气泡
                     send(null, fixPrompt);
                     return;
                 }
@@ -261,27 +270,25 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
 }
 
 async function send(displayText = null, actualText = null) {
-    const text = displayText || inputEl.value.trim();
-    const sendText = actualText || text;
+    const textToUse = actualText || displayText || inputEl.value.trim();
+    if (!textToUse || busy) return;
     
-    if (!text || !sendText || busy) return;
-    
-    if (!displayText) {
+    if (!displayText && !actualText) {
         inputEl.value = ''; 
         inputEl.style.height = 'auto';
-        autoFixCount = 0; // 用户手动发消息，重置自动修复计数器
+        autoFixCount = 0; 
     }
     
     busy = true; sendBtn.disabled = true; sendBtn.classList.add('busy'); sendBtn.textContent = 'AI回答中';
 
-    if (displayText) {
-        const ub = document.createElement('div'); ub.className = 'msg user'; ub.textContent = displayText; chatEl.appendChild(ub);
-        apiHistory.push({ role: 'user', content: displayText });
-        displayHistory.push({ role: 'user', content: displayText });
-    } else {
-        apiHistory.push({ role: 'user', content: sendText });
-        displayHistory.push({ role: 'user', content: sendText });
-    }
+    // 移除之前的 if (!actualText) 判断，现在强制每次发送都渲染蓝色气泡
+    const ub = document.createElement('div'); 
+    ub.className = 'msg user'; 
+    ub.textContent = textToUse; 
+    chatEl.appendChild(ub);
+    
+    apiHistory.push({ role: 'user', content: textToUse });
+    displayHistory.push({ role: 'user', content: textToUse });
 
     const currentMsgObj = { role: 'assistant', reasoning: '', content: '', files: [], buildStatus: null };
     displayHistory.push(currentMsgObj); saveSession(); scrollBottom(true);
