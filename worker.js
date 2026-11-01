@@ -4,7 +4,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // 1. 接收 GitHub Action 的回调
     if (url.pathname === '/github_callback' && request.method === 'POST') {
       try {
         const formData = await request.formData();
@@ -28,7 +27,6 @@ export default {
       }
     }
 
-    // 2. 轮询状态
     if (url.pathname === '/check_build' && request.method === 'GET') {
       const taskId = url.searchParams.get('task_id');
       const statusStr = await env.BUILD_KV.get(taskId + '_status');
@@ -41,7 +39,6 @@ export default {
       }
     }
 
-    // 3. 下载 Jar
     if (url.pathname === '/download' && request.method === 'GET') {
       const taskId = url.searchParams.get('task_id');
       const jarBuffer = await env.BUILD_KV.get(taskId + '_jar', { type: 'arrayBuffer' });
@@ -51,13 +48,11 @@ export default {
       });
     }
 
-    // 4. AI 对话接口
     if (url.pathname === '/chat' && request.method === 'POST') {
       const body = await request.json();
       return handleChat(body, env, request);
     }
 
-    // 5. 返回前端页面
     return new Response(HTML_CONTENT, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 };
@@ -66,7 +61,6 @@ async function handleChat(body, env, request) {
   const messages = body.messages || [];
   const configIndex = body.configIndex || 0;
   
-  // 你可以把这几个 token 也改成 env.xxx 的读取方式
   const AI_CONFIGS = [
     { name: 'Agents-A1', endpoint: 'https://discovery-api.intern-ai.org.cn/v1/chat/completions', token: 'sk-995826aecd7cceaf5ce748f695d385a468ff307c788bc1480c5b41ce4c14aef4', model: 'Agents-A1' },
     { name: 'Sage-A1.5', endpoint: 'https://discovery-api.intern-ai.org.cn/v1/chat/completions', token: 'sk-995826aecd7cceaf5ce748f695d385a468ff307c788bc1480c5b41ce4c14aef4', model: 'Sage-A1.5' },
@@ -76,7 +70,7 @@ async function handleChat(body, env, request) {
   const cfg = AI_CONFIGS[configIndex] || AI_CONFIGS[0];
   const systemPrompt = {
     role: 'system',
-    content: '你是一个专业的 Minecraft 模组开发助手。\n你可以使用工具 package_mod_project 将代码打包并提交云端编译。\n【极度重要】：直接一次性把所有代码放入工具，不要分批！如果遇到构建失败，请根据日志修复代码中的 import 报错等。'
+    content: '你是一个专业的 Minecraft 模组开发助手。\n你可以使用工具 package_mod_project 将代码打包并提交云端编译。\n【极度重要】：1. 直接一次性把所有代码放入工具，千万不要分批或用纯文本输出大段代码！ 2. 如果遇到构建失败，请根据日志修复代码中的 import 报错等。'
   };
   
   const cleanMessages = [systemPrompt, ...messages.map(m => ({ role: m.role, content: m.content }))];
@@ -124,9 +118,12 @@ async function processStream(stream, writer, encoder, env, request) {
   let buffer = '';
   let content = '';
   let toolCalls = {};
+  let isError = false;
   
   const writeEvent = (event, data) => {
-    writer.write(encoder.encode('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'));
+    try {
+      writer.write(encoder.encode('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'));
+    } catch(e) {}
   };
 
   try {
@@ -202,9 +199,12 @@ async function processStream(stream, writer, encoder, env, request) {
       }
     }
   } catch (e) {
+    isError = true;
     console.error(e);
+    // 关键修复：流读取异常时，发送错误事件给前端
+    writeEvent('error', { message: 'AI 响应中断，可能是生成内容过长导致超时。请重试或精简需求。' });
   } finally {
-    writeEvent('done', {});
+    if (!isError) writeEvent('done', {});
     writer.close();
   }
 }
