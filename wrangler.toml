@@ -1,6 +1,6 @@
 name = "mc-builder"
 main = "worker.js"
-compatibility_date = "2026-11-02"
+compatibility_date = "2026-11-01"
 
 # 允许 Wrangler 将 html 文件作为字符串导入
 rules = [
