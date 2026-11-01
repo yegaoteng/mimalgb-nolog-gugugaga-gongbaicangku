@@ -52,9 +52,20 @@ jobs:
         id: build_step
         run: |
           cd /home/runner/mod_workspace
-          # 将日志输出到文件，方便失败时提取
+          # 关键修复：临时关闭遇错退出，必须把日志打出来！
+          set +e
           gradle build > build_log.txt 2>&1
+          BUILD_EXIT_CODE=$?
+          set -e
+          
+          echo "================ 详细日志 ================"
           cat build_log.txt
+          echo "=========================================="
+          
+          if [ $BUILD_EXIT_CODE -ne 0 ]; then
+            echo "Gradle 构建失败，退出码: $BUILD_EXIT_CODE"
+            exit 1
+          fi
 
       - name: 回传 Jar 到 PHP
         if: success()
@@ -67,12 +78,13 @@ jobs:
                -F "task_id=${{ github.event.client_payload.task_id }}" \
                -F "jar_file=@$JAR_PATH"
 
-      - name: 失败时通知 PHP (附带报错日志)
+      - name: 失败时通知 PHP
         if: failure()
         run: |
           cd /home/runner/mod_workspace
-          # 提取最后 50 行报错日志（防止太长把服务器撑爆）
-          LOG_CONTENT=$(tail -n 50 build_log.txt)
+          # 截取最后 1500 个字符的日志（防止 WAF 拦截超长 POST）
+          LOG_CONTENT=$(tail -c 1500 build_log.txt)
+          # 发送 POST 请求，带上日志
           curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
                -F "status=failed" \
                -F "task_id=${{ github.event.client_payload.task_id }}" \
