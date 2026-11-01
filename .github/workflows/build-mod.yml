@@ -15,25 +15,38 @@ jobs:
         run: |
           mkdir -p /home/runner/mod_workspace
           cd /home/runner/mod_workspace
+          set +e  # 临时关闭遇错退出
           
-          # 1. 直接将 Worker 传来的 JSON 写入文件（注意：不要再解压 ZIP 了！）
           cat << 'EOF' > project.json
           ${{ github.event.client_payload.project_json }}
           EOF
           
-          # 2. 使用 GitHub 环境自带的 Node.js 遍历 JSON 还原文件
+          # 解析 JSON 并将报错重定向到日志文件
           node -e '
             const fs = require("fs");
             const path = require("path");
-            const files = JSON.parse(fs.readFileSync("project.json", "utf8"));
-            for (const file of files) {
-              const dir = path.dirname(file.path);
-              if (dir !== ".") fs.mkdirSync(dir, { recursive: true });
-              fs.writeFileSync(file.path, file.content);
+            try {
+              const files = JSON.parse(fs.readFileSync("project.json", "utf8"));
+              for (const file of files) {
+                const dir = path.dirname(file.path);
+                if (dir !== ".") fs.mkdirSync(dir, { recursive: true });
+                fs.writeFileSync(file.path, file.content);
+              }
+            } catch(e) {
+              console.error("❌ 解析 JSON 报错:", e.message);
+              process.exit(1);
             }
-          '
+          ' > build_log.txt 2>&1
           
-          # 3. 解析版本号
+          if [ $? -ne 0 ]; then
+            echo "构建在文件还原阶段失败！" >> build_log.txt
+            cat build_log.txt
+            exit 1
+          fi
+          
+          rm -f build_log.txt # 清理成功日志，准备正式的 build 日志
+          set -e
+          
           if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
             VER=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9\.]*\)-bin.zip.*/\1/')
             echo "GRADLE_VER=$VER" >> $GITHUB_ENV
@@ -93,11 +106,10 @@ jobs:
         if: failure()
         run: |
           cd /home/runner/mod_workspace
-          # 容错处理：如果连日志都没生成（比如第一步就挂了），给一个默认提示
           if [ -f build_log.txt ]; then
             LOG_CONTENT=$(tail -c 2000 build_log.txt)
           else
-            LOG_CONTENT="构建在早期准备阶段失败，请检查 AI 提供的文件结构或 Action 配置。"
+            LOG_CONTENT="构建在极早期失败（可能在准备依赖或拉取代码时中断）。请检查 Action 面板。"
           fi
           
           curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
