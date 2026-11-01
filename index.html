@@ -162,31 +162,75 @@ function renderHistory() {
 
 newChatBtn.addEventListener('click', () => {
     if (busy) { if(!confirm("确定要新开对话吗？")) return; }
-    Object.values(globalTimers).forEach(clearInterval); globalTimers = {};
+    Object.values(globalTimers).forEach(timer => {
+        if (typeof timer === 'function') timer();
+        else if (timer.clear) timer.clear();
+        else clearInterval(timer); 
+    }); 
+    globalTimers = {};
     localStorage.removeItem('ai_chat_session_v5');
     apiHistory = []; displayHistory = []; chatEl.innerHTML = ''; inputEl.focus();
 });
 
 function pollBuildStatus(taskId, msgObj, cardEl) {
-    globalTimers[taskId] = setInterval(() => {
+    let pollCount = 0;
+    let timeoutId = null;
+    let isPaused = false;
+
+    function doPoll() {
+        if (isPaused) return;
+        pollCount++;
+        
+        if (pollCount > 100) {
+            msgObj.buildStatus = 'failed'; saveSession();
+            cardEl.innerHTML = '<span style="color:red;">❌ 编译超时，请检查 GitHub Actions。</span>';
+            return;
+        }
+
         fetch('/check_build?task_id=' + taskId)
             .then(res => res.json())
             .then(data => {
                 if (data.status === 'success') {
-                    clearInterval(globalTimers[taskId]); delete globalTimers[taskId];
                     msgObj.buildStatus = 'success'; msgObj.files = [{ name: 'Jar', url: '/download?task_id=' + taskId }]; saveSession();
                     cardEl.innerHTML = '<div class="file-cards-container"><div class="file-card-inline"><span class="file-icon">📦</span><span class="file-name">编译成功</span><a class="file-download" href="/download?task_id=' + taskId + '">下载</a></div></div>';
                     scrollBottom(true);
+                    return;
                 } else if (data.status === 'error') {
-                    clearInterval(globalTimers[taskId]); delete globalTimers[taskId];
                     msgObj.buildStatus = 'failed'; saveSession();
                     cardEl.innerHTML = '<span style="color:red; display:block; margin-bottom:8px;">❌ 编译失败，AI 自动修复中...</span><pre style="font-size:12px; color:#999; background:#f5f5f5; padding:8px; border-radius:6px; overflow-x:auto; max-height:150px;">' + escapeHtml(data.log) + '</pre>';
                     if (busy) return;
                     let fixPrompt = "之前的代码在云端编译失败了，报错日志如下：\n\n" + (data.log || "未知错误") + "\n\n请仔细分析错误原因（比如是不是忘记 import 导包了），修改代码后，重新调用 package_mod_project 打包。";
                     inputEl.value = fixPrompt; send();
+                    return;
                 }
-            }).catch(() => {});
-    }, 10000);
+                
+                // 动态退避
+                let nextDelay = 5000; 
+                if (pollCount > 12) nextDelay = 15000; 
+                if (pollCount > 20) nextDelay = 30000; 
+                
+                timeoutId = setTimeout(doPoll, nextDelay);
+            }).catch(() => {
+                timeoutId = setTimeout(doPoll, 10000);
+            });
+    }
+
+    const handleVisibilityChange = () => {
+        if (document.hidden) {
+            isPaused = true;
+            if (timeoutId) clearTimeout(timeoutId);
+        } else {
+            if (isPaused) {
+                isPaused = false;
+                doPoll();
+            }
+        }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    globalTimers[taskId] = { clear: () => { isPaused = true; if(timeoutId) clearTimeout(timeoutId); document.removeEventListener('visibilitychange', handleVisibilityChange); } };
+
+    doPoll();
 }
 
 async function send() {

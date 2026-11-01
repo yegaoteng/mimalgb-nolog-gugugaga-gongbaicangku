@@ -53,7 +53,6 @@ export default {
       return handleChat(body, env, request);
     }
 
-    // 直接返回 import 进来的 HTML
     return new Response(HTML_CONTENT, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 };
@@ -62,6 +61,7 @@ async function handleChat(body, env, request) {
   const messages = body.messages || [];
   const configIndex = body.configIndex || 0;
   
+  // 强烈建议将这里的 token 替换为 env.AI_TOKEN_1 等环境变量，避免泄露
   const AI_CONFIGS = [
     { name: 'Agents-A1', endpoint: 'https://discovery-api.intern-ai.org.cn/v1/chat/completions', token: 'sk-995826aecd7cceaf5ce748f695d385a468ff307c788bc1480c5b41ce4c14aef4', model: 'Agents-A1' },
     { name: 'Sage-A1.5', endpoint: 'https://discovery-api.intern-ai.org.cn/v1/chat/completions', token: 'sk-995826aecd7cceaf5ce748f695d385a468ff307c788bc1480c5b41ce4c14aef4', model: 'Sage-A1.5' },
@@ -166,12 +166,14 @@ async function processStream(stream, writer, encoder, env, cfg, request) {
       
       try {
         const callbackUrl = new URL('/github_callback', request.url).toString();
+        
+        // 关键修改：直接传 JSON 字符串，不再使用 btoa
         const payload = {
           event_type: 'build_mod',
           client_payload: {
             task_id: taskId,
             mod_name: args.mod_name || 'mcmod',
-            project_zip_base64: btoa(unescape(encodeURIComponent(JSON.stringify(args.project_files)))), 
+            project_json: JSON.stringify(args.project_files), 
             callback_url: callbackUrl
           }
         };
