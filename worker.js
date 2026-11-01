@@ -4,6 +4,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // 1. 接收 GitHub Action 的回调
     if (url.pathname === '/github_callback' && request.method === 'POST') {
       try {
         const formData = await request.formData();
@@ -27,6 +28,7 @@ export default {
       }
     }
 
+    // 2. 轮询状态
     if (url.pathname === '/check_build' && request.method === 'GET') {
       const taskId = url.searchParams.get('task_id');
       const statusStr = await env.BUILD_KV.get(taskId + '_status');
@@ -39,6 +41,7 @@ export default {
       }
     }
 
+    // 3. 下载 Jar
     if (url.pathname === '/download' && request.method === 'GET') {
       const taskId = url.searchParams.get('task_id');
       const jarBuffer = await env.BUILD_KV.get(taskId + '_jar', { type: 'arrayBuffer' });
@@ -48,11 +51,13 @@ export default {
       });
     }
 
+    // 4. AI 对话接口
     if (url.pathname === '/chat' && request.method === 'POST') {
       const body = await request.json();
       return handleChat(body, env, request);
     }
 
+    // 5. 返回前端页面
     return new Response(HTML_CONTENT, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 };
@@ -61,7 +66,7 @@ async function handleChat(body, env, request) {
   const messages = body.messages || [];
   const configIndex = body.configIndex || 0;
   
-  // 强烈建议将这里的 token 替换为 env.AI_TOKEN_1 等环境变量，避免泄露
+  // 你可以把这几个 token 也改成 env.xxx 的读取方式
   const AI_CONFIGS = [
     { name: 'Agents-A1', endpoint: 'https://discovery-api.intern-ai.org.cn/v1/chat/completions', token: 'sk-995826aecd7cceaf5ce748f695d385a468ff307c788bc1480c5b41ce4c14aef4', model: 'Agents-A1' },
     { name: 'Sage-A1.5', endpoint: 'https://discovery-api.intern-ai.org.cn/v1/chat/completions', token: 'sk-995826aecd7cceaf5ce748f695d385a468ff307c788bc1480c5b41ce4c14aef4', model: 'Sage-A1.5' },
@@ -108,12 +113,12 @@ async function handleChat(body, env, request) {
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
 
-  processStream(aiRes.body, writer, encoder, env, cfg, request).catch(console.error);
+  processStream(aiRes.body, writer, encoder, env, request).catch(console.error);
 
   return new Response(readable, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' } });
 }
 
-async function processStream(stream, writer, encoder, env, cfg, request) {
+async function processStream(stream, writer, encoder, env, request) {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -166,8 +171,6 @@ async function processStream(stream, writer, encoder, env, cfg, request) {
       
       try {
         const callbackUrl = new URL('/github_callback', request.url).toString();
-        
-        // 关键修改：直接传 JSON 字符串，不再使用 btoa
         const payload = {
           event_type: 'build_mod',
           client_payload: {

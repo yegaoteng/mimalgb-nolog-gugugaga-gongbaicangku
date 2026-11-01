@@ -48,7 +48,7 @@
 </head>
 <body>
 <header>
-    <div class="title">AI 助手 (Cloudflare)</div>
+    <div class="title">AI 助手</div>
     <button id="new-chat-btn">+ 新对话</button>
 </header>
 <div id="chat"></div>
@@ -78,6 +78,7 @@ let apiHistory = [];
 let displayHistory = [];
 let busy = false;
 let globalTimers = {}; 
+let autoFixCount = 0; // 记录自动修复次数，防止无限循环
 
 function scrollBottom(force) {
     if (force || chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 60) {
@@ -168,6 +169,7 @@ newChatBtn.addEventListener('click', () => {
         else clearInterval(timer); 
     }); 
     globalTimers = {};
+    autoFixCount = 0;
     localStorage.removeItem('ai_chat_session_v5');
     apiHistory = []; displayHistory = []; chatEl.innerHTML = ''; inputEl.focus();
 });
@@ -198,19 +200,30 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
                 } else if (data.status === 'error') {
                     msgObj.buildStatus = 'failed'; saveSession();
                     cardEl.innerHTML = '<span style="color:red; display:block; margin-bottom:8px;">❌ 编译失败，AI 自动修复中...</span><pre style="font-size:12px; color:#999; background:#f5f5f5; padding:8px; border-radius:6px; overflow-x:auto; max-height:150px;">' + escapeHtml(data.log) + '</pre>';
+                    
+                    // 防止 429 限流，最多自动修复 3 次
+                    if (autoFixCount >= 3) {
+                        const eb = document.createElement('div'); eb.className = 'msg error'; 
+                        eb.textContent = "❌ AI 连续修复多次仍然失败，可能陷入死循环或触发了接口频率限制。请手动检查代码。"; 
+                        chatEl.appendChild(eb);
+                        return;
+                    }
+
                     if (busy) return;
+                    autoFixCount++;
+                    
                     let fixPrompt = "之前的代码在云端编译失败了，报错日志如下：\n\n" + (data.log || "未知错误") + "\n\n请仔细分析错误原因（比如是不是忘记 import 导包了），修改代码后，重新调用 package_mod_project 打包。";
                     inputEl.value = fixPrompt; send();
                     return;
                 }
                 
-                // 动态退避
                 let nextDelay = 5000; 
                 if (pollCount > 12) nextDelay = 15000; 
                 if (pollCount > 20) nextDelay = 30000; 
                 
                 timeoutId = setTimeout(doPoll, nextDelay);
             }).catch(() => {
+                // 网络异常（如切后台断网）延迟重试，不会直接死掉
                 timeoutId = setTimeout(doPoll, 10000);
             });
     }
@@ -246,9 +259,12 @@ async function send() {
     let answerDiv = null, currentText = "", reasoningBox = null, reasoningContent = null, userToggledReasoning = false, firstDeltaReceived = false;
 
     try {
+        // 上下文截取，防止 TPM 过高引发 429
+        const recentHistory = apiHistory.slice(-4);
+
         const res = await fetch('/chat', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: apiHistory, configIndex: parseInt(modelSelect.value, 10) || 0 })
+            body: JSON.stringify({ messages: recentHistory, configIndex: parseInt(modelSelect.value, 10) || 0 })
         });
         const reader = res.body.getReader(); const decoder = new TextDecoder(); let sseBuf = '';
         while (true) {
@@ -306,7 +322,12 @@ async function send() {
             }
         }
     } catch (e) {
-        const eb = document.createElement('div'); eb.className = 'msg error'; eb.textContent = '网络错误：' + e.message; chatEl.appendChild(eb);
+        // 前端断网容错
+        if (currentText.trim()) {
+            const eb = document.createElement('div'); eb.className = 'msg error'; eb.textContent = '⚠️ 网络波动，部分内容可能未加载完毕。'; chatEl.appendChild(eb);
+        } else {
+            const eb = document.createElement('div'); eb.className = 'msg error'; eb.textContent = '❌ 网络连接失败，请检查网络后重试。'; chatEl.appendChild(eb);
+        }
     } finally {
         busy = false; sendBtn.disabled = false; sendBtn.classList.remove('busy'); sendBtn.textContent = '发送'; inputEl.focus(); scrollBottom(false);
     }
