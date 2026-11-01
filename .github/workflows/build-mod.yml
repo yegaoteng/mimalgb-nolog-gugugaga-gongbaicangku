@@ -14,7 +14,6 @@ jobs:
         run: |
           mkdir -p /home/runner/mod_workspace
           cd /home/runner/mod_workspace
-          # 解码 PHP 传来的 Base64 源码
           echo "${{ github.event.client_payload.project_zip_base64 }}" | base64 -d > project.zip
           unzip project.zip
           rm project.zip
@@ -36,20 +35,21 @@ jobs:
           restore-keys: gradle-
 
       - name: 执行 Gradle 构建
-  run: |
-    cd /home/runner/mod_workspace
-    # 如果解压后没有 gradlew，就用系统自带的 gradle 生成一个
-    if [ ! -f "gradlew" ]; then
-      echo "⚠️ 未找到 gradlew 脚本，正在使用系统 Gradle 生成 wrapper..."
-      gradle wrapper --gradle-version 8.8
-    fi
-    chmod +x gradlew
-    ./gradlew build
+        run: |
+          cd /home/runner/mod_workspace
+          # 如果解压后没有 gradlew，就用系统自带的 gradle 生成一个
+          if [ ! -f "gradlew" ]; then
+            echo "⚠️ 未找到 gradlew 脚本，正在使用系统 Gradle 生成 wrapper..."
+            gradle wrapper --gradle-version 8.8
+          fi
+          chmod +x gradlew
+          ./gradlew build
 
       - name: 回传 Jar 到 PHP
         if: success()
         run: |
           cd /home/runner/mod_workspace
+          # 寻找非 sources 的 jar
           JAR_PATH=$(find build/libs -name "*.jar" ! -name "*-sources.jar" | head -n 1)
           if [ -z "$JAR_PATH" ]; then
             echo "构建失败，未找到 Jar。"
