@@ -15,22 +15,26 @@ jobs:
         run: |
           mkdir -p /home/runner/mod_workspace
           cd /home/runner/mod_workspace
-          set +e  # 临时关闭遇错退出
+          set +e
           
           cat << 'EOF' > project.json
           ${{ github.event.client_payload.project_json }}
           EOF
           
-          # 解析 JSON 并将报错重定向到日志文件
+          # 关键防御：过滤掉格式非法的文件
           node -e '
             const fs = require("fs");
             const path = require("path");
             try {
               const files = JSON.parse(fs.readFileSync("project.json", "utf8"));
               for (const file of files) {
+                if (!file.path || typeof file.path !== "string") {
+                  console.warn("⚠️ 忽略非法文件（缺少 path）:", file);
+                  continue;
+                }
                 const dir = path.dirname(file.path);
                 if (dir !== ".") fs.mkdirSync(dir, { recursive: true });
-                fs.writeFileSync(file.path, file.content);
+                fs.writeFileSync(file.path, file.content || "");
               }
             } catch(e) {
               console.error("❌ 解析 JSON 报错:", e.message);
@@ -44,7 +48,7 @@ jobs:
             exit 1
           fi
           
-          rm -f build_log.txt # 清理成功日志，准备正式的 build 日志
+          rm -f build_log.txt
           set -e
           
           if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
@@ -109,7 +113,7 @@ jobs:
           if [ -f build_log.txt ]; then
             LOG_CONTENT=$(tail -c 2000 build_log.txt)
           else
-            LOG_CONTENT="构建在极早期失败（可能在准备依赖或拉取代码时中断）。请检查 Action 面板。"
+            LOG_CONTENT="构建在极早期失败。"
           fi
           
           curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
