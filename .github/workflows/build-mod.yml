@@ -19,7 +19,6 @@ jobs:
           unzip project.zip
           rm project.zip
           
-          # 提取 Gradle 版本
           if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
             VER=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9\.]*\)-bin.zip.*/\1/')
             echo "GRADLE_VER=$VER" >> $GITHUB_ENV
@@ -27,16 +26,12 @@ jobs:
             echo "GRADLE_VER=8.8" >> $GITHUB_ENV
           fi
           
-          # 智能判断 Java 版本 (1.20.5+ 使用 Java 21)
           if [ -f "gradle.properties" ]; then
             MC_VER=$(grep minecraft_version gradle.properties | cut -d'=' -f2 | xargs)
-            # 简单的版本比较逻辑，大于等于 1.20.5 则使用 Java 21
             if [[ "$MC_VER" == "1.20.5"* || "$MC_VER" == "1.20.6"* || "$MC_VER" == "1.21"* ]]; then
               echo "JAVA_VER=21" >> $GITHUB_ENV
-              echo "检测到高版本，使用 Java 21"
             else
               echo "JAVA_VER=17" >> $GITHUB_ENV
-              echo "使用 Java 17"
             fi
           else
             echo "JAVA_VER=17" >> $GITHUB_ENV
@@ -54,9 +49,12 @@ jobs:
           gradle-version: ${{ env.GRADLE_VER }}
 
       - name: 执行 Gradle 构建
+        id: build_step
         run: |
           cd /home/runner/mod_workspace
-          gradle build
+          # 将日志输出到文件，方便失败时提取
+          gradle build > build_log.txt 2>&1
+          cat build_log.txt
 
       - name: 回传 Jar 到 PHP
         if: success()
@@ -69,9 +67,13 @@ jobs:
                -F "task_id=${{ github.event.client_payload.task_id }}" \
                -F "jar_file=@$JAR_PATH"
 
-      - name: 失败时通知 PHP
+      - name: 失败时通知 PHP (附带报错日志)
         if: failure()
         run: |
+          cd /home/runner/mod_workspace
+          # 提取最后 50 行报错日志（防止太长把服务器撑爆）
+          LOG_CONTENT=$(tail -n 50 build_log.txt)
           curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
                -F "status=failed" \
-               -F "task_id=${{ github.event.client_payload.task_id }}" || true
+               -F "task_id=${{ github.event.client_payload.task_id }}" \
+               -F "error_log=$LOG_CONTENT" || true
