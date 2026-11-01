@@ -87,23 +87,16 @@ function scrollBottom(force) {
 }
 
 function escapeHtml(s) {
-    return String(s)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function renderMarkdown(text) {
     if (typeof marked === 'undefined') return escapeHtml(text).replace(/\n/g, '<br>');
     try {
-        // 绝对安全的防破坏处理（利用字符串拼接，绝对不触发浏览器闭合机制）
         const closeScript = '</scr' + 'ipt>';
         const openScript = '<scr' + 'ipt>';
         let safeText = text.replace(new RegExp(closeScript, 'gi'), '&lt;/scr' + 'ipt&gt;');
         safeText = safeText.replace(new RegExp(openScript, 'gi'), '&lt;scr' + 'ipt&gt;');
-        
         return marked.parse(safeText, { breaks: true, gfm: true });
     } catch(e) {
         return escapeHtml(text).replace(/\n/g, '<br>');
@@ -152,6 +145,8 @@ function renderHistory() {
     chatEl.innerHTML = '';
     displayHistory.forEach(item => {
         if (item.role === 'user') {
+            // 隐藏自动修复时的内部长提示
+            if (item.content.includes("之前的代码在云端编译失败了")) return; 
             const ub = document.createElement('div'); ub.className = 'msg user'; ub.textContent = item.content; chatEl.appendChild(ub);
         } else if (item.role === 'assistant') {
             if (item.reasoning) {
@@ -230,7 +225,8 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
                     autoFixCount++;
                     
                     let fixPrompt = "之前的代码在云端编译失败了，报错日志如下：\n\n" + (data.log || "未知错误") + "\n\n请仔细分析错误原因，修改代码后，重新调用 package_mod_project 打包。";
-                    inputEl.value = fixPrompt; send();
+                    // 关键：静默发送
+                    send(null, fixPrompt);
                     return;
                 }
                 
@@ -240,7 +236,7 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
                 
                 timeoutId = setTimeout(doPoll, nextDelay);
             }).catch(() => {
-                timeoutId = setTimeout(doPoll, 10000);
+                timeoutId = setTimeout(doPoll, 5000);
             });
     }
 
@@ -262,13 +258,31 @@ function pollBuildStatus(taskId, msgObj, cardEl) {
     doPoll();
 }
 
-async function send() {
-    const text = inputEl.value.trim();
-    if (!text || busy) return;
-    inputEl.value = ''; inputEl.style.height = 'auto'; busy = true; sendBtn.disabled = true; sendBtn.classList.add('busy'); sendBtn.textContent = 'AI回答中';
+// 升级版的 send，支持静默传递提示词
+async function send(displayText = null, actualText = null) {
+    const text = displayText || inputEl.value.trim();
+    const sendText = actualText || text;
+    
+    if (!text || !sendText || busy) return;
+    
+    if (!displayText) {
+        inputEl.value = ''; 
+        inputEl.style.height = 'auto';
+    }
+    
+    busy = true; sendBtn.disabled = true; sendBtn.classList.add('busy'); sendBtn.textContent = 'AI回答中';
 
-    const ub = document.createElement('div'); ub.className = 'msg user'; ub.textContent = text; chatEl.appendChild(ub);
-    apiHistory.push({ role: 'user', content: text }); displayHistory.push({ role: 'user', content: text });
+    // 如果传了 displayText，才显示蓝色气泡
+    if (displayText) {
+        const ub = document.createElement('div'); ub.className = 'msg user'; ub.textContent = displayText; chatEl.appendChild(ub);
+        apiHistory.push({ role: 'user', content: displayText });
+        displayHistory.push({ role: 'user', content: displayText });
+    } else {
+        // 静默发送，不渲染气泡，但存入历史
+        apiHistory.push({ role: 'user', content: sendText });
+        displayHistory.push({ role: 'user', content: sendText });
+    }
+
     const currentMsgObj = { role: 'assistant', reasoning: '', content: '', files: [], buildStatus: null };
     displayHistory.push(currentMsgObj); saveSession(); scrollBottom(true);
 
@@ -358,14 +372,14 @@ async function send() {
 
     } catch (e) {
         const eb = document.createElement('div'); eb.className = 'msg error'; 
-        eb.textContent = '❌ 网络连接中断：' + e.message + '。'; 
+        eb.textContent = '❌ 网络连接中断：' + e.message; 
         chatEl.appendChild(eb);
     } finally {
         busy = false; sendBtn.disabled = false; sendBtn.classList.remove('busy'); sendBtn.textContent = '发送'; inputEl.focus(); scrollBottom(false);
     }
 }
 
-sendBtn.addEventListener('click', send);
+sendBtn.addEventListener('click', () => send());
 inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 loadSession();
 </script>
