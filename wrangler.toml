@@ -1,13 +1,15 @@
-name = "mc-build"
-main = "woker.js"
+name = "mc-builder"
+main = "worker.js"
 compatibility_date = "2026-11-02"
 
-# 1. 绑定 KV 命名空间 (用于存储构建状态和 Jar 文件)
-# 你需要先在 Cloudflare 控制台创建一个 KV，然后把 ID 填到这里
+# 允许 Wrangler 将 html 文件作为字符串导入
+rules = [
+  { type = "Text", globs = ["**/*.html"], fallthrough = true }
+]
+
 [[kv_namespaces]]
 binding = "BUILD_KV"
 id = "971a814ad9e14b098762af7d60dbb5a9"
 
-# 2. 环境变量配置
 [vars]
 GITHUB_REPO = "yegaoteng/mimalgb-nolog-gugugaga-gongbaicangku"
