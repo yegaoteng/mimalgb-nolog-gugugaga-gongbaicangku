@@ -10,15 +10,30 @@ jobs:
     timeout-minutes: 15 
 
     steps:
-      - name: 准备项目目录并解析版本号
+      - name: 准备项目目录并解析源码
         id: prep
         run: |
           mkdir -p /home/runner/mod_workspace
           cd /home/runner/mod_workspace
-          echo "${{ github.event.client_payload.project_zip_base64 }}" | base64 -d > project.zip
-          unzip project.zip
-          rm project.zip
           
+          # 1. 直接将 Worker 传来的 JSON 写入文件（注意：不要再解压 ZIP 了！）
+          cat << 'EOF' > project.json
+          ${{ github.event.client_payload.project_json }}
+          EOF
+          
+          # 2. 使用 GitHub 环境自带的 Node.js 遍历 JSON 还原文件
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const files = JSON.parse(fs.readFileSync("project.json", "utf8"));
+            for (const file of files) {
+              const dir = path.dirname(file.path);
+              if (dir !== ".") fs.mkdirSync(dir, { recursive: true });
+              fs.writeFileSync(file.path, file.content);
+            }
+          '
+          
+          # 3. 解析版本号
           if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
             VER=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9\.]*\)-bin.zip.*/\1/')
             echo "GRADLE_VER=$VER" >> $GITHUB_ENV
@@ -52,22 +67,18 @@ jobs:
         id: build_step
         run: |
           cd /home/runner/mod_workspace
-          # 关键修复：临时关闭遇错退出，必须把日志打出来！
           set +e
           gradle build > build_log.txt 2>&1
           BUILD_EXIT_CODE=$?
           set -e
           
-          echo "================ 详细日志 ================"
           cat build_log.txt
-          echo "=========================================="
           
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
-            echo "Gradle 构建失败，退出码: $BUILD_EXIT_CODE"
             exit 1
           fi
 
-      - name: 回传 Jar 到 PHP
+      - name: 回传 Jar 到 Cloudflare
         if: success()
         run: |
           cd /home/runner/mod_workspace
@@ -78,13 +89,17 @@ jobs:
                -F "task_id=${{ github.event.client_payload.task_id }}" \
                -F "jar_file=@$JAR_PATH"
 
-      - name: 失败时通知 PHP
+      - name: 失败时通知 Cloudflare
         if: failure()
         run: |
           cd /home/runner/mod_workspace
-          # 截取最后 1500 个字符的日志（防止 WAF 拦截超长 POST）
-          LOG_CONTENT=$(tail -c 1500 build_log.txt)
-          # 发送 POST 请求，带上日志
+          # 容错处理：如果连日志都没生成（比如第一步就挂了），给一个默认提示
+          if [ -f build_log.txt ]; then
+            LOG_CONTENT=$(tail -c 2000 build_log.txt)
+          else
+            LOG_CONTENT="构建在早期准备阶段失败，请检查 AI 提供的文件结构或 Action 配置。"
+          fi
+          
           curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
                -F "status=failed" \
                -F "task_id=${{ github.event.client_payload.task_id }}" \
