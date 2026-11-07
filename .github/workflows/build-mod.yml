@@ -12,16 +12,18 @@ jobs:
     steps:
       - name: 准备项目目录并解析源码
         id: prep
+        env:
+          # 接收 Base64 编码的数据，防止代码里包含特殊字符破坏脚本
+          PROJECT_JSON_B64: ${{ github.event.client_payload.project_json_b64 }}
         run: |
           mkdir -p /home/runner/mod_workspace
           cd /home/runner/mod_workspace
           set +e
           
-          cat << 'EOF' > project.json
-          ${{ github.event.client_payload.project_json }}
-          EOF
+          # 1. 安全地解析 Base64 还原 JSON 文件
+          echo "$PROJECT_JSON_B64" | base64 -d > project.json
           
-          # 关键防御：过滤掉格式非法的文件
+          # 2. 关键防御：过滤掉格式非法的文件
           node -e '
             const fs = require("fs");
             const path = require("path");
@@ -48,9 +50,10 @@ jobs:
             exit 1
           fi
           
-          rm -f build_log.txt
+          rm -f project.json build_log.txt
           set -e
           
+          # 3. 解析 Gradle 和 Java 版本
           if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
             VER=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9\.]*\)-bin.zip.*/\1/')
             echo "GRADLE_VER=$VER" >> $GITHUB_ENV
