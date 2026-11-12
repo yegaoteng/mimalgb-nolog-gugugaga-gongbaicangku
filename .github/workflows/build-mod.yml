@@ -53,7 +53,7 @@ jobs:
           rm -f project.json build_log.txt
           set -e
           
-          # 3. 解析 Gradle 和 Java 版本
+          # 3. 解析 Gradle 版本
           if [ -f "gradle/wrapper/gradle-wrapper.properties" ]; then
             VER=$(grep distributionUrl gradle/wrapper/gradle-wrapper.properties | sed 's/.*gradle-\([0-9\.]*\)-bin.zip.*/\1/')
             echo "GRADLE_VER=$VER" >> $GITHUB_ENV
@@ -61,15 +61,40 @@ jobs:
             echo "GRADLE_VER=8.8" >> $GITHUB_ENV
           fi
           
-          if [ -f "gradle.properties" ]; then
-            MC_VER=$(grep minecraft_version gradle.properties | cut -d'=' -f2 | xargs)
-            if [[ "$MC_VER" == "1.20.5"* || "$MC_VER" == "1.20.6"* || "$MC_VER" == "1.21"* ]]; then
+          # 4. 自动识别项目类型（Minecraft 模组 / 服务器插件），选择 Java 版本
+          PLUGIN_YML=""
+          if [ -f "src/main/resources/plugin.yml" ]; then
+            PLUGIN_YML="src/main/resources/plugin.yml"
+          elif [ -f "src/main/resources/paper-plugin.yml" ]; then
+            PLUGIN_YML="src/main/resources/paper-plugin.yml"
+          elif [ -f "plugin.yml" ]; then
+            PLUGIN_YML="plugin.yml"
+          elif [ -f "paper-plugin.yml" ]; then
+            PLUGIN_YML="paper-plugin.yml"
+          fi
+
+          if [ -n "$PLUGIN_YML" ]; then
+            echo "PROJECT_TYPE=plugin" >> $GITHUB_ENV
+            API_VER=$(grep -E "^[[:space:]]*api-version:" "$PLUGIN_YML" | head -n1 | sed -E 's/.*api-version:[[:space:]]*"?([0-9]+\.[0-9]+)"?.*/\1/' | xargs || true)
+            echo "检测到 Minecraft 服务器插件项目 (${PLUGIN_YML})，api-version=${API_VER}"
+            if [[ "$API_VER" == 1.20.5* || "$API_VER" == 1.20.6* || "$API_VER" == 1.21* || "$API_VER" == 1.22* ]]; then
               echo "JAVA_VER=21" >> $GITHUB_ENV
             else
               echo "JAVA_VER=17" >> $GITHUB_ENV
             fi
           else
-            echo "JAVA_VER=17" >> $GITHUB_ENV
+            echo "PROJECT_TYPE=mod" >> $GITHUB_ENV
+            echo "检测到 Minecraft 模组项目 (Forge/Fabric)"
+            if [ -f "gradle.properties" ]; then
+              MC_VER=$(grep -E "^minecraft_version" gradle.properties | head -n1 | cut -d'=' -f2 | xargs || true)
+              if [[ "$MC_VER" == "1.20.5"* || "$MC_VER" == "1.20.6"* || "$MC_VER" == "1.21"* ]]; then
+                echo "JAVA_VER=21" >> $GITHUB_ENV
+              else
+                echo "JAVA_VER=17" >> $GITHUB_ENV
+              fi
+            else
+              echo "JAVA_VER=17" >> $GITHUB_ENV
+            fi
           fi
 
       - name: 设置 Java 环境
@@ -102,7 +127,7 @@ jobs:
         if: success()
         run: |
           cd /home/runner/mod_workspace
-          JAR_PATH=$(find build/libs -name "*.jar" ! -name "*-sources.jar" | head -n 1)
+          JAR_PATH=$(find build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-dev.jar" ! -name "*-javadoc.jar" | head -n 1)
           if [ -z "$JAR_PATH" ]; then exit 1; fi
           curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
                -F "status=success" \
