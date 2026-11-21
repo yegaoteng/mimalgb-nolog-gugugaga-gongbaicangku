@@ -113,7 +113,7 @@ jobs:
         run: |
           cd /home/runner/mod_workspace
           set +e
-          gradle build > build_log.txt 2>&1
+          gradle build --no-daemon --stacktrace > build_log.txt 2>&1
           BUILD_EXIT_CODE=$?
           set -e
           
@@ -128,8 +128,11 @@ jobs:
         run: |
           cd /home/runner/mod_workspace
           JAR_PATH=$(find build/libs -name "*.jar" ! -name "*-sources.jar" ! -name "*-dev.jar" ! -name "*-javadoc.jar" | head -n 1)
-          if [ -z "$JAR_PATH" ]; then exit 1; fi
-          curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
+          if [ -z "$JAR_PATH" ]; then
+            echo "gradle build 成功，但 build/libs 下没有找到可发布的 jar。" > build_log.txt
+            exit 1
+          fi
+          curl -sS -X POST "${{ github.event.client_payload.callback_url }}" \
                -F "status=success" \
                -F "task_id=${{ github.event.client_payload.task_id }}" \
                -F "jar_file=@$JAR_PATH"
@@ -138,13 +141,15 @@ jobs:
         if: failure()
         run: |
           cd /home/runner/mod_workspace
+          # 关键：用文件方式回传，避免日志里出现 @ 开头或换行时 curl -F 把它当文件/截断，
+          # 那样回调的 error_log 会是空的，AI 就永远看不到真实编译错误。
           if [ -f build_log.txt ]; then
-            LOG_CONTENT=$(tail -c 2000 build_log.txt)
+            tail -c 8000 build_log.txt > error_log.txt
           else
-            LOG_CONTENT="构建在极早期失败。"
+            echo "构建在极早期失败（未生成 build_log.txt）。" > error_log.txt
           fi
-          
-          curl -s -X POST "${{ github.event.client_payload.callback_url }}" \
+
+          curl -sS -X POST "${{ github.event.client_payload.callback_url }}" \
                -F "status=failed" \
                -F "task_id=${{ github.event.client_payload.task_id }}" \
-               -F "error_log=$LOG_CONTENT" || true
+               -F "error_log=<error_log.txt" || true
